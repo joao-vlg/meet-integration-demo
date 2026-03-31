@@ -1,11 +1,17 @@
 import 'package:flutter/material.dart';
 import 'package:google_sign_in/google_sign_in.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:googleapis/calendar/v3.dart' as calendar;
 import 'package:googleapis_auth/googleapis_auth.dart' as auth;
 import 'package:url_launcher/url_launcher.dart';
 import 'package:http/http.dart' as http;
+import 'package:firebase_core/firebase_core.dart';
+import 'call_service.dart';
 
-void main() {
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  await Firebase.initializeApp();
+  await CallService().initialize();
   runApp(const MyApp());
 }
 
@@ -53,19 +59,62 @@ class _MeetDemoHomeState extends State<MeetDemoHome> {
   Future<void> _initGoogleSignIn() async {
     // Initialize the singleton with the serverClientId for Android
     await _googleSignIn.initialize(
-      serverClientId: '771127470041-50p3s939ji92it8qussgvkmfhad2596s.apps.googleusercontent.com',
+      serverClientId: '222693628192-qefmvcdmbtsub02al4802v78gs0il8gk.apps.googleusercontent.com',
     );
 
     // Listen to authentication events (Sign-In/Sign-Out)
-    _googleSignIn.authenticationEvents.listen((event) {
-      setState(() {
-        if (event is GoogleSignInAuthenticationEventSignIn) {
-          _currentUser = event.user;
-        } else if (event is GoogleSignInAuthenticationEventSignOut) {
+    _googleSignIn.authenticationEvents.listen((event) async {
+      if (event is GoogleSignInAuthenticationEventSignIn) {
+        final user = event.user;
+        if (user != null) {
+          // Login no Firebase para evitar PERMISSION_DENIED no Firestore
+          try {
+            final dynamic auth = await (user as dynamic).authentication;
+            
+            debugPrint('Iniciando extração robusta de tokens...');
+            
+            String? idToken;
+            String? accessToken;
+
+            // Tentativa 1: Nomes padrão (camelCase)
+            try { idToken = auth.idToken; } catch (_) {}
+            try { accessToken = auth.accessToken; } catch (_) {}
+
+            // Tentativa 2: Nomes com underscore (snake_case)
+            if (idToken == null) { try { idToken = auth.id_token; } catch (_) {} }
+            if (accessToken == null) { try { accessToken = auth.access_token; } catch (_) {} }
+
+            debugPrint('Tokens encontrados: idToken=${idToken != null}, accessToken=${accessToken != null}');
+
+            if (idToken != null || accessToken != null) {
+              final AuthCredential credential = GoogleAuthProvider.credential(
+                accessToken: accessToken,
+                idToken: idToken,
+              );
+              await FirebaseAuth.instance.signInWithCredential(credential);
+              debugPrint('Firebase Auth Success: ${FirebaseAuth.instance.currentUser?.uid}');
+            } else {
+              debugPrint('Firebase Auth Error: Não foi possível extrair nenhum token do objeto: ${auth.runtimeType}');
+            }
+          } catch (e) {
+            debugPrint('Firebase Auth Critical Error: $e');
+          }
+
+          setState(() {
+            _currentUser = user;
+            // Registra o usuário no CallService para ouvir chamadas
+            if (_currentUser != null) {
+              CallService().registerUser(_currentUser!.email);
+            }
+          });
+        }
+      } else if (event is GoogleSignInAuthenticationEventSignOut) {
+        setState(() {
           _currentUser = null;
           _meetingUrl = null;
-        }
-      });
+          CallService().dispose();
+        });
+      }
     });
 
     // Attempt to restore previous session
@@ -78,14 +127,18 @@ class _MeetDemoHomeState extends State<MeetDemoHome> {
 
   Future<void> _handleSignIn() async {
     try {
-      // In 7.2.0+, use authenticate() instead of signIn()
+      // Usar o método authenticate() que já estava no projeto
+      debugPrint('Iniciando Google Sign-In (authenticate)...');
       await _googleSignIn.authenticate();
     } catch (error) {
       debugPrint('Sign in error: $error');
     }
   }
 
-  Future<void> _handleSignOut() => _googleSignIn.signOut();
+  Future<void> _handleSignOut() async {
+    await _googleSignIn.signOut();
+    await FirebaseAuth.instance.signOut();
+  }
 
   Future<void> _createMeeting() async {
     if (_currentUser == null) return;
@@ -103,7 +156,9 @@ class _MeetDemoHomeState extends State<MeetDemoHome> {
     });
 
     try {
-      // Authorize scopes to get the token
+      String meetingUrl;
+
+      // No Modo Google, criamos o link real via Calendar API
       final scopes = [calendar.CalendarApi.calendarEventsScope];
       final authorization = await _currentUser!.authorizationClient.authorizeScopes(scopes);
       
@@ -125,17 +180,11 @@ class _MeetDemoHomeState extends State<MeetDemoHome> {
       final calendarApi = calendar.CalendarApi(authenticateClient);
 
       final event = calendar.Event(
-        summary: 'Chamada do Google Meet',
+        summary: 'Chamada do Google Meet (PoC)',
         description: 'Chamada instantânea iniciada via App',
-        start: calendar.EventDateTime(
-          dateTime: DateTime.now(),
-        ),
-        end: calendar.EventDateTime(
-          dateTime: DateTime.now().add(const Duration(hours: 1)),
-        ),
-        attendees: [
-          calendar.EventAttendee(email: email),
-        ],
+        start: calendar.EventDateTime(dateTime: DateTime.now()),
+        end: calendar.EventDateTime(dateTime: DateTime.now().add(const Duration(hours: 1))),
+        attendees: [calendar.EventAttendee(email: email)],
         conferenceData: calendar.ConferenceData(
           createRequest: calendar.CreateConferenceRequest(
             requestId: DateTime.now().millisecondsSinceEpoch.toString(),
@@ -148,11 +197,17 @@ class _MeetDemoHomeState extends State<MeetDemoHome> {
         event,
         'primary',
         conferenceDataVersion: 1,
-        sendUpdates: 'all', // Notifica o destinatário por e-mail
+        sendUpdates: 'all',
       );
+      meetingUrl = createdEvent.hangoutLink ?? '';
+
+      // SINALIZAÇÃO DE CHAMADA
+      if (meetingUrl.isNotEmpty) {
+        await CallService().startCall(_currentUser!.email, email, meetingUrl);
+      }
 
       setState(() {
-        _meetingUrl = createdEvent.hangoutLink;
+        _meetingUrl = meetingUrl;
       });
     } catch (error) {
       debugPrint('Error creating meeting: $error');
@@ -193,7 +248,7 @@ class _MeetDemoHomeState extends State<MeetDemoHome> {
           mainAxisAlignment: MainAxisAlignment.center,
           children: <Widget>[
             if (_currentUser == null) ...[
-              const Text('Sign in to create a meeting'),
+              const Text('Entrar com sua conta Google'),
               const SizedBox(height: 20),
               ElevatedButton(
                 onPressed: _handleSignIn,

@@ -1,0 +1,144 @@
+{
+  "project_info": {
+    "project_number": "222693628192",
+    "firebase_url": "https://uff-mobile-plus.firebaseio.com",
+    "project_id": "uff-mobile-plus",
+    "storage_bucket": "uff-mobile-plus.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:222693628192:android:513f83091d5400ac8adf45",
+        "android_client_info": {
+          "package_name": "br.uff.uffmobileplus"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "222693628192-0aho0srg8evnbobvdb118ptmsjc5jacc.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "br.uff.uffmobileplus",
+            "certificate_hash": "7b40910d6320bf1ac3d106105a26828de2262b10"
+          }
+        },
+        {
+          "client_id": "222693628192-0lheaimjsqbodio4javg2j1fbqbga6no.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "br.uff.uffmobileplus",
+            "certificate_hash": "bb7fd5f66da5dce3adba4588223c9df69e3eaa32"
+          }
+        },
+        {
+          "client_id": "222693628192-1hl0pt5cfk7vllkbb2ldvf5fmo0q9ckd.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "br.uff.uffmobileplus",
+            "certificate_hash": "9f630d6de72fae1a116fb11c38dc596d7fbb87c3"
+          }
+        },
+        {
+          "client_id": "222693628192-2jk6mps2vscgu5fakpk5bvjaevcklv47.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "br.uff.uffmobileplus",
+            "certificate_hash": "f6ed8948121eeeb9fc84c5d832507058f3c073b8"
+          }
+        },
+        {
+          "client_id": "222693628192-5gestk3mqcp5nb2ig2tn1s4c64ncdqrl.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "br.uff.uffmobileplus",
+            "certificate_hash": "bd7249a8c1a7f15538303b149686d7d895ea186e"
+          }
+        },
+        {
+          "client_id": "222693628192-6mvf99pbmbumnt9b0g4i09drb6g09jqg.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "br.uff.uffmobileplus",
+            "certificate_hash": "53f324691c7f691fa1342d56ddaca8e01e0b03ed"
+          }
+        },
+        {
+          "client_id": "222693628192-ekib2j4jpbrm78i8rr7t86d6922i3i7h.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "br.uff.uffmobileplus",
+            "certificate_hash": "533ea697d517a6073308d7afe32fa77bcc5a78ea"
+          }
+        },
+        {
+          "client_id": "222693628192-ekifbdi2qgs13bpcu06lnn8fa7f8gkih.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "br.uff.uffmobileplus",
+            "certificate_hash": "ade35f4c76cb6aa69d71dd2fcc744ec636a214c6"
+          }
+        },
+        {
+          "client_id": "222693628192-lrt2nveld7oqa842guajf6b8hfh6djao.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "br.uff.uffmobileplus",
+            "certificate_hash": "4e41c65e59263d754e20f3fc6b3ad2b43830b941"
+          }
+        },
+        {
+          "client_id": "222693628192-m6jtfbo8u05kcuu4ucuhvsm7diadnm72.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "br.uff.uffmobileplus",
+            "certificate_hash": "bc9b2716ee808f5f635d972b6327a8ba03bd7995"
+          }
+        },
+        {
+          "client_id": "222693628192-n5at0tn0ske5kq9sg4d2uv26vnn4ekpt.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "br.uff.uffmobileplus",
+            "certificate_hash": "612bdcef902c631277b55c0feb040782be136cf2"
+          }
+        },
+        {
+          "client_id": "222693628192-suiobd5t58mhq0jep9427bfortngujdi.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "br.uff.uffmobileplus",
+            "certificate_hash": "5372e3b6f2cfdfa8f7eec8e135aa49edc79f0704"
+          }
+        },
+        {
+          "client_id": "222693628192-qefmvcdmbtsub02al4802v78gs0il8gk.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDIe3CCE33ya8jACc23P8nIIDp-L1GK_gE"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "222693628192-69reelh98338m0iet6t99qu3ae2hrg81.apps.googleusercontent.com",
+              "client_type": 3
+            },
+            {
+              "client_id": "222693628192-60ec3i35hu0plsijltn2bm1k3mh47sgb.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "br.uff.sti.uffmobileplus",
+                "app_store_id": "1464200741"
+              }
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

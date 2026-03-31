@@ -1,4 +1,4 @@
-package com.example.meet_integration_demo
+package br.uff.uffmobileplus
 
 import io.flutter.embedding.android.FlutterActivity
 
