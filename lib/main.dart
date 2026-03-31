@@ -34,9 +34,15 @@ class MeetDemoHome extends StatefulWidget {
 
 class _MeetDemoHomeState extends State<MeetDemoHome> {
   final GoogleSignIn _googleSignIn = GoogleSignIn.instance;
+  final TextEditingController _recipientController = TextEditingController();
   GoogleSignInAccount? _currentUser;
   String? _meetingUrl;
   bool _isCreating = false;
+
+  bool _isValidEmail(String email) {
+    return RegExp(r"^[a-zA-Z0-9.a-zA-Z0-9.!#$%&'*+-/=?^_`{|}~]+@[a-zA-Z0-9]+\.[a-zA-Z]+")
+        .hasMatch(email);
+  }
 
   @override
   void initState() {
@@ -45,8 +51,10 @@ class _MeetDemoHomeState extends State<MeetDemoHome> {
   }
 
   Future<void> _initGoogleSignIn() async {
-    // Initialize the singleton
-    await _googleSignIn.initialize();
+    // Initialize the singleton with the serverClientId for Android
+    await _googleSignIn.initialize(
+      serverClientId: '771127470041-50p3s939ji92it8qussgvkmfhad2596s.apps.googleusercontent.com',
+    );
 
     // Listen to authentication events (Sign-In/Sign-Out)
     _googleSignIn.authenticationEvents.listen((event) {
@@ -82,6 +90,14 @@ class _MeetDemoHomeState extends State<MeetDemoHome> {
   Future<void> _createMeeting() async {
     if (_currentUser == null) return;
 
+    final email = _recipientController.text.trim();
+    if (email.isEmpty || !_isValidEmail(email)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Por favor, insira um e-mail válido para a chamada.')),
+      );
+      return;
+    }
+
     setState(() {
       _isCreating = true;
     });
@@ -109,14 +125,17 @@ class _MeetDemoHomeState extends State<MeetDemoHome> {
       final calendarApi = calendar.CalendarApi(authenticateClient);
 
       final event = calendar.Event(
-        summary: 'Demo Google Meet Meeting',
-        description: 'Meeting created via Flutter App',
+        summary: 'Chamada do Google Meet',
+        description: 'Chamada instantânea iniciada via App',
         start: calendar.EventDateTime(
-          dateTime: DateTime.now().add(const Duration(minutes: 10)),
+          dateTime: DateTime.now(),
         ),
         end: calendar.EventDateTime(
-          dateTime: DateTime.now().add(const Duration(minutes: 40)),
+          dateTime: DateTime.now().add(const Duration(hours: 1)),
         ),
+        attendees: [
+          calendar.EventAttendee(email: email),
+        ],
         conferenceData: calendar.ConferenceData(
           createRequest: calendar.CreateConferenceRequest(
             requestId: DateTime.now().millisecondsSinceEpoch.toString(),
@@ -129,6 +148,7 @@ class _MeetDemoHomeState extends State<MeetDemoHome> {
         event,
         'primary',
         conferenceDataVersion: 1,
+        sendUpdates: 'all', // Notifica o destinatário por e-mail
       );
 
       setState(() {
@@ -182,14 +202,32 @@ class _MeetDemoHomeState extends State<MeetDemoHome> {
             ] else ...[
               Text('Signed in as ${_currentUser!.displayName ?? _currentUser!.email}'),
               const SizedBox(height: 20),
-              if (_meetingUrl == null)
+              if (_meetingUrl == null) ...[
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 40.0),
+                  child: TextField(
+                    controller: _recipientController,
+                    decoration: const InputDecoration(
+                      labelText: 'E-mail do Destinatário',
+                      hintText: 'exemplo@gmail.com',
+                      border: OutlineInputBorder(),
+                      prefixIcon: Icon(Icons.email),
+                    ),
+                    keyboardType: TextInputType.emailAddress,
+                  ),
+                ),
+                const SizedBox(height: 20),
                 _isCreating
                     ? const CircularProgressIndicator()
-                    : ElevatedButton(
+                    : ElevatedButton.icon(
                         onPressed: _createMeeting,
-                        child: const Text('CREATE GOOGLE MEET LINK'),
-                      )
-              else ...[
+                        icon: const Icon(Icons.call),
+                        label: const Text('INICIAR CHAMADA NO GOOGLE MEET'),
+                        style: ElevatedButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                        ),
+                      ),
+              ] else ...[
                 const Text('Meeting Created!', style: TextStyle(fontWeight: FontWeight.bold)),
                 SelectableText(_meetingUrl!),
                 const SizedBox(height: 20),
