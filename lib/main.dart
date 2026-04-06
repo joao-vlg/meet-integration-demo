@@ -1,27 +1,25 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:googleapis/calendar/v3.dart' as calendar;
-import 'package:googleapis_auth/googleapis_auth.dart' as auth;
-import 'package:url_launcher/url_launcher.dart';
-import 'package:http/http.dart' as http;
 import 'package:firebase_core/firebase_core.dart';
 import 'call_service.dart';
+import 'google_meet_service.dart';
+import 'jitsi_service.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await Firebase.initializeApp();
-  await CallService().initialize();
-  runApp(const MyApp());
+  runApp(const MeetDemoApp());
 }
 
-class MyApp extends StatelessWidget {
-  const MyApp({super.key});
+class MeetDemoApp extends StatelessWidget {
+  const MeetDemoApp({super.key});
 
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Google Meet Demo',
+      title: 'UFF Meet Integration PoC',
       theme: ThemeData(
         colorScheme: ColorScheme.fromSeed(seedColor: Colors.blue),
         useMaterial3: true,
@@ -30,6 +28,10 @@ class MyApp extends StatelessWidget {
     );
   }
 }
+
+// =============================================================================
+// Tela Principal
+// =============================================================================
 
 class MeetDemoHome extends StatefulWidget {
   const MeetDemoHome({super.key});
@@ -42,7 +44,7 @@ class _MeetDemoHomeState extends State<MeetDemoHome> {
   final GoogleSignIn _googleSignIn = GoogleSignIn.instance;
   final TextEditingController _recipientController = TextEditingController();
   GoogleSignInAccount? _currentUser;
-  String? _meetingUrl;
+  String? _meetingUrl; // Usado apenas para chamadas Google Meet
   bool _isCreating = false;
 
   bool _isValidEmail(String email) {
@@ -57,57 +59,41 @@ class _MeetDemoHomeState extends State<MeetDemoHome> {
   }
 
   Future<void> _initGoogleSignIn() async {
-    // Initialize the singleton with the serverClientId for Android
     await _googleSignIn.initialize(
       serverClientId: '222693628192-qefmvcdmbtsub02al4802v78gs0il8gk.apps.googleusercontent.com',
     );
 
-    // Listen to authentication events (Sign-In/Sign-Out)
     _googleSignIn.authenticationEvents.listen((event) async {
       if (event is GoogleSignInAuthenticationEventSignIn) {
         final user = event.user;
-        if (user != null) {
-          // Login no Firebase para evitar PERMISSION_DENIED no Firestore
-          try {
-            final dynamic auth = await (user as dynamic).authentication;
-            
-            debugPrint('Iniciando extração robusta de tokens...');
-            
-            String? idToken;
-            String? accessToken;
 
-            // Tentativa 1: Nomes padrão (camelCase)
-            try { idToken = auth.idToken; } catch (_) {}
-            try { accessToken = auth.accessToken; } catch (_) {}
+        try {
+          final dynamic auth = await (user as dynamic).authentication;
+          String? idToken;
+          String? accessToken;
 
-            // Tentativa 2: Nomes com underscore (snake_case)
-            if (idToken == null) { try { idToken = auth.id_token; } catch (_) {} }
-            if (accessToken == null) { try { accessToken = auth.access_token; } catch (_) {} }
+          try { idToken = auth.idToken; } catch (_) {}
+          try { accessToken = auth.accessToken; } catch (_) {}
+          if (idToken == null) { try { idToken = auth.id_token; } catch (_) {} }
+          if (accessToken == null) { try { accessToken = auth.access_token; } catch (_) {} }
 
-            debugPrint('Tokens encontrados: idToken=${idToken != null}, accessToken=${accessToken != null}');
-
-            if (idToken != null || accessToken != null) {
-              final AuthCredential credential = GoogleAuthProvider.credential(
-                accessToken: accessToken,
-                idToken: idToken,
-              );
-              await FirebaseAuth.instance.signInWithCredential(credential);
-              debugPrint('Firebase Auth Success: ${FirebaseAuth.instance.currentUser?.uid}');
-            } else {
-              debugPrint('Firebase Auth Error: Não foi possível extrair nenhum token do objeto: ${auth.runtimeType}');
-            }
-          } catch (e) {
-            debugPrint('Firebase Auth Critical Error: $e');
+          if (idToken != null || accessToken != null) {
+            final AuthCredential credential = GoogleAuthProvider.credential(
+              accessToken: accessToken,
+              idToken: idToken,
+            );
+            await FirebaseAuth.instance.signInWithCredential(credential);
+            debugPrint('Firebase Auth: ${FirebaseAuth.instance.currentUser?.uid}');
           }
-
-          setState(() {
-            _currentUser = user;
-            // Registra o usuário no CallService para ouvir chamadas
-            if (_currentUser != null) {
-              CallService().registerUser(_currentUser!.email);
-            }
-          });
+        } catch (e) {
+          debugPrint('Firebase Auth Error: $e');
         }
+
+        setState(() {
+          _currentUser = user;
+          CallService().initialize();
+          CallService().registerUser(_currentUser!.email);
+        });
       } else if (event is GoogleSignInAuthenticationEventSignOut) {
         setState(() {
           _currentUser = null;
@@ -117,30 +103,28 @@ class _MeetDemoHomeState extends State<MeetDemoHome> {
       }
     });
 
-    // Attempt to restore previous session
     try {
       await _googleSignIn.attemptLightweightAuthentication();
     } catch (e) {
-      debugPrint('Lightweight authentication failed: $e');
+      debugPrint('Sessão prévia não encontrada.');
     }
   }
 
   Future<void> _handleSignIn() async {
     try {
-      // Usar o método authenticate() que já estava no projeto
-      debugPrint('Iniciando Google Sign-In (authenticate)...');
       await _googleSignIn.authenticate();
     } catch (error) {
       debugPrint('Sign in error: $error');
     }
   }
 
-  Future<void> _handleSignOut() async {
-    await _googleSignIn.signOut();
-    await FirebaseAuth.instance.signOut();
-  }
+  Future<void> _handleSignOut() => _googleSignIn.signOut();
 
-  Future<void> _createMeeting() async {
+  // ---------------------------------------------------------------------------
+  // Inicia a chamada
+  // ---------------------------------------------------------------------------
+
+  Future<void> _startMeeting(String provider) async {
     if (_currentUser == null) return;
 
     final email = _recipientController.text.trim();
@@ -151,158 +135,448 @@ class _MeetDemoHomeState extends State<MeetDemoHome> {
       return;
     }
 
-    setState(() {
-      _isCreating = true;
-    });
+    setState(() { _isCreating = true; });
 
     try {
-      String meetingUrl;
+      if (provider == 'meet') {
+        // --- Google Meet: cria link e sinaliza ---
+        final link = await GoogleMeetService().createMeeting(_currentUser!, email);
+        if (link == null) throw 'Google Meet não conseguiu gerar o link (Limites da Instituição?)';
 
-      // No Modo Google, criamos o link real via Calendar API
-      final scopes = [calendar.CalendarApi.calendarEventsScope];
-      final authorization = await _currentUser!.authorizationClient.authorizeScopes(scopes);
-      
-      final accessToken = authorization.accessToken;
+        await CallService().startCall(_currentUser!.email, email, link, provider);
+        setState(() { _meetingUrl = link; });
 
-      final authenticateClient = auth.authenticatedClient(
-        http.Client(),
-        auth.AccessCredentials(
-          auth.AccessToken(
-            'Bearer',
-            accessToken,
-            DateTime.now().add(const Duration(hours: 1)).toUtc(),
-          ),
-          null,
-          scopes,
-        ),
-      );
+      } else if (provider == 'jitsi') {
+        // --- Jitsi: gera sala, sinaliza e abre a tela "Chamando..."
+        final roomName = JitsiService().generateRoomName();
+        await CallService().startCall(_currentUser!.email, email, roomName, provider);
 
-      final calendarApi = calendar.CalendarApi(authenticateClient);
-
-      final event = calendar.Event(
-        summary: 'Chamada do Google Meet (PoC)',
-        description: 'Chamada instantânea iniciada via App',
-        start: calendar.EventDateTime(dateTime: DateTime.now()),
-        end: calendar.EventDateTime(dateTime: DateTime.now().add(const Duration(hours: 1))),
-        attendees: [calendar.EventAttendee(email: email)],
-        conferenceData: calendar.ConferenceData(
-          createRequest: calendar.CreateConferenceRequest(
-            requestId: DateTime.now().millisecondsSinceEpoch.toString(),
-            conferenceSolutionKey: calendar.ConferenceSolutionKey(type: 'hangoutsMeet'),
-          ),
-        ),
-      );
-
-      final createdEvent = await calendarApi.events.insert(
-        event,
-        'primary',
-        conferenceDataVersion: 1,
-        sendUpdates: 'all',
-      );
-      meetingUrl = createdEvent.hangoutLink ?? '';
-
-      // SINALIZAÇÃO DE CHAMADA
-      if (meetingUrl.isNotEmpty) {
-        await CallService().startCall(_currentUser!.email, email, meetingUrl);
+        if (mounted) {
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (_) => CallingScreen(
+                recipientEmail: email,
+                callerDisplayName: _currentUser!.displayName ?? 'Usuário UFF',
+                callerEmail: _currentUser!.email,
+                roomName: roomName,
+              ),
+            ),
+          );
+        }
       }
-
-      setState(() {
-        _meetingUrl = meetingUrl;
-      });
     } catch (error) {
-      debugPrint('Error creating meeting: $error');
+      debugPrint('Erro ao criar chamada: $error');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed to create meeting: $error')),
+          SnackBar(content: Text('Erro: $error')),
         );
       }
     } finally {
-      if (mounted) {
-        setState(() {
-          _isCreating = false;
-        });
-      }
+      if (mounted) setState(() { _isCreating = false; });
     }
   }
 
-  Future<void> _launchMeeting() async {
-    if (_meetingUrl != null) {
-      final url = Uri.parse(_meetingUrl!);
-      if (await canLaunchUrl(url)) {
-        await launchUrl(url);
-      } else {
-        debugPrint('Could not launch $_meetingUrl');
-      }
-    }
+  // Reentrar em chamada Google Meet já criada
+  void _launchMeetMeeting() async {
+    if (_meetingUrl == null) return;
+    await GoogleMeetService().launchMeeting(_meetingUrl!);
   }
+
+  // ---------------------------------------------------------------------------
+  // UI
+  // ---------------------------------------------------------------------------
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Google Meet Demo'),
+        title: const Text('UFF Meet Pro'),
         backgroundColor: Theme.of(context).colorScheme.inversePrimary,
       ),
       body: Center(
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
-          children: <Widget>[
+          children: [
             if (_currentUser == null) ...[
-              const Text('Entrar com sua conta Google'),
+              const Text('Conecte-se para iniciar chamadas'),
               const SizedBox(height: 20),
               ElevatedButton(
                 onPressed: _handleSignIn,
                 child: const Text('SIGN IN WITH GOOGLE'),
               ),
             ] else ...[
-              Text('Signed in as ${_currentUser!.displayName ?? _currentUser!.email}'),
-              const SizedBox(height: 20),
-              if (_meetingUrl == null) ...[
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 40.0),
-                  child: TextField(
-                    controller: _recipientController,
-                    decoration: const InputDecoration(
-                      labelText: 'E-mail do Destinatário',
-                      hintText: 'exemplo@gmail.com',
-                      border: OutlineInputBorder(),
-                      prefixIcon: Icon(Icons.email),
-                    ),
-                    keyboardType: TextInputType.emailAddress,
+              const CircleAvatar(radius: 40, child: Icon(Icons.person, size: 40)),
+              const SizedBox(height: 10),
+              Text('Logado como: ${_currentUser!.displayName}'),
+              Text(_currentUser!.email, style: const TextStyle(fontSize: 12)),
+              const SizedBox(height: 30),
+
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 40),
+                child: TextField(
+                  controller: _recipientController,
+                  decoration: const InputDecoration(
+                    labelText: 'E-mail do Destinatário',
+                    border: OutlineInputBorder(),
                   ),
                 ),
-                const SizedBox(height: 20),
-                _isCreating
-                    ? const CircularProgressIndicator()
-                    : ElevatedButton.icon(
-                        onPressed: _createMeeting,
-                        icon: const Icon(Icons.call),
-                        label: const Text('INICIAR CHAMADA NO GOOGLE MEET'),
-                        style: ElevatedButton.styleFrom(
-                          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-                        ),
+              ),
+              const SizedBox(height: 20),
+
+              if (_meetingUrl == null) ...[
+                if (_isCreating)
+                  const CircularProgressIndicator()
+                else
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      // BOTÃO GOOGLE MEET
+                      Column(
+                        children: [
+                          IconButton.filled(
+                            onPressed: () => _startMeeting('meet'),
+                            icon: const Icon(Icons.video_call),
+                            iconSize: 32,
+                            style: IconButton.styleFrom(backgroundColor: Colors.blue),
+                          ),
+                          const Text('Google Meet', style: TextStyle(fontSize: 12)),
+                        ],
                       ),
+                      const SizedBox(width: 40),
+                      // BOTÃO JITSI (CHAMADA DE VOZ)
+                      Column(
+                        children: [
+                          IconButton.filled(
+                            onPressed: () => _startMeeting('jitsi'),
+                            icon: const Icon(Icons.phone),
+                            iconSize: 32,
+                            style: IconButton.styleFrom(backgroundColor: Colors.green),
+                          ),
+                          const Text('Chamada de Voz', style: TextStyle(fontSize: 12)),
+                        ],
+                      ),
+                    ],
+                  ),
               ] else ...[
-                const Text('Meeting Created!', style: TextStyle(fontWeight: FontWeight.bold)),
-                SelectableText(_meetingUrl!),
+                const Text('Chamada Meet em Andamento!', style: TextStyle(fontWeight: FontWeight.bold)),
                 const SizedBox(height: 20),
-                ElevatedButton(
-                  onPressed: _launchMeeting,
-                  child: const Text('JOIN MEETING'),
+                ElevatedButton.icon(
+                  onPressed: _launchMeetMeeting,
+                  icon: const Icon(Icons.video_chat),
+                  label: const Text('REENTRAR NO MEET'),
                 ),
-                const SizedBox(height: 10),
                 TextButton(
                   onPressed: () => setState(() => _meetingUrl = null),
-                  child: const Text('Create Another'),
+                  child: const Text('Nova Chamada'),
                 ),
               ],
+
               const SizedBox(height: 40),
               TextButton(
                 onPressed: _handleSignOut,
-                child: const Text('SIGN OUT'),
+                child: const Text('LOGOUT'),
               ),
             ],
           ],
+        ),
+      ),
+    );
+  }
+}
+
+// =============================================================================
+// Tela "Chamando..." — exibida para o remetente enquanto aguarda resposta
+// =============================================================================
+
+class CallingScreen extends StatefulWidget {
+  final String recipientEmail;
+  final String callerDisplayName;
+  final String callerEmail;
+  final String roomName;
+
+  const CallingScreen({
+    super.key,
+    required this.recipientEmail,
+    required this.callerDisplayName,
+    required this.callerEmail,
+    required this.roomName,
+  });
+
+  @override
+  State<CallingScreen> createState() => _CallingScreenState();
+}
+
+class _CallingScreenState extends State<CallingScreen> with TickerProviderStateMixin {
+  // Animação de pulso
+  late final AnimationController _pulseController;
+  late final Animation<double> _pulseScale;
+  late final Animation<double> _pulseOpacity;
+
+  // Timer de exibição (cronômetro visual)
+  Timer? _displayTimer;
+  int _secondsElapsed = 0;
+
+  // Listener do estado da chamada
+  StreamSubscription<CallState>? _callStateSubscription;
+
+  // Flag para evitar double-pop
+  bool _navigationHandled = false;
+
+  @override
+  void initState() {
+    super.initState();
+
+    // Configura animação pulsante (círculo que respira)
+    _pulseController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1200),
+    )..repeat(reverse: true);
+
+    _pulseScale = Tween<double>(begin: 0.92, end: 1.08).animate(
+      CurvedAnimation(parent: _pulseController, curve: Curves.easeInOut),
+    );
+    _pulseOpacity = Tween<double>(begin: 0.4, end: 0.9).animate(
+      CurvedAnimation(parent: _pulseController, curve: Curves.easeInOut),
+    );
+
+    // Cronômetro visual
+    _displayTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (mounted) setState(() => _secondsElapsed++);
+    });
+
+    // Escuta o resultado da chamada
+    _callStateSubscription = CallService().callStateStream?.listen(_onCallStateChanged);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Reação ao estado da chamada
+  // ---------------------------------------------------------------------------
+
+  void _onCallStateChanged(CallState state) {
+    if (!mounted || _navigationHandled) return;
+
+    switch (state) {
+      case CallState.connected:
+        _handleNavigation(() {
+          // Remetente entra na sala Jitsi
+          JitsiService().joinMeeting(
+            roomName: widget.roomName,
+            userDisplayName: widget.callerDisplayName,
+            userEmail: widget.callerEmail,
+          );
+        });
+        break;
+
+      case CallState.declined:
+        _handleNavigation(() {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Chamada recusada pelo destinatário.')),
+          );
+        });
+        break;
+
+      case CallState.timeout:
+        _handleNavigation(() {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Sem resposta. Tente novamente.')),
+          );
+        });
+        break;
+
+      case CallState.cancelled:
+        _handleNavigation(null);
+        break;
+
+      default:
+        break;
+    }
+  }
+
+  /// Garante que o pop aconteça uma única vez e executa [afterPop] em seguida.
+  void _handleNavigation(VoidCallback? afterPop) {
+    if (_navigationHandled) return;
+    _navigationHandled = true;
+    Navigator.of(context).pop();
+    afterPop?.call();
+  }
+
+  // ---------------------------------------------------------------------------
+  // Cancelar chamada (botão vermelho ou botão de voltar)
+  // ---------------------------------------------------------------------------
+
+  Future<void> _cancelCall() async {
+    if (_navigationHandled) return;
+    await CallService().cancelCall();
+    // O cancelCall() emite CallState.cancelled, que é capturado por
+    // _onCallStateChanged e faz o pop. Não chamamos Navigator.pop() aqui.
+  }
+
+  // ---------------------------------------------------------------------------
+  // Formatação do cronômetro
+  // ---------------------------------------------------------------------------
+
+  String get _elapsedDisplay {
+    final mins = _secondsElapsed ~/ 60;
+    final secs = _secondsElapsed % 60;
+    return '${mins.toString().padLeft(2, '0')}:${secs.toString().padLeft(2, '0')}';
+  }
+
+  // ---------------------------------------------------------------------------
+  // Lifecycle
+  // ---------------------------------------------------------------------------
+
+  @override
+  void dispose() {
+    _pulseController.dispose();
+    _displayTimer?.cancel();
+    _callStateSubscription?.cancel();
+    super.dispose();
+  }
+
+  // ---------------------------------------------------------------------------
+  // UI
+  // ---------------------------------------------------------------------------
+
+  @override
+  Widget build(BuildContext context) {
+    return PopScope(
+      // Impede voltar sem cancelar a chamada
+      canPop: false,
+      onPopInvokedWithResult: (didPop, _) {
+        if (!didPop) _cancelCall();
+      },
+      child: Scaffold(
+        backgroundColor: const Color(0xFF0D1B2A),
+        body: SafeArea(
+          child: Column(
+            children: [
+              const Spacer(flex: 2),
+
+              // --- Anel pulsante + ícone de telefone ---
+              AnimatedBuilder(
+                animation: _pulseController,
+                builder: (_, child) {
+                  return Stack(
+                    alignment: Alignment.center,
+                    children: [
+                      // Anel externo (mais transparente)
+                      Transform.scale(
+                        scale: _pulseScale.value * 1.35,
+                        child: Container(
+                          width: 130,
+                          height: 130,
+                          decoration: BoxDecoration(
+                            shape: BoxShape.circle,
+                            color: const Color(0xFF2ECC71)
+                                .withValues(alpha: _pulseOpacity.value * 0.25),
+                          ),
+                        ),
+                      ),
+                      // Anel médio
+                      Transform.scale(
+                        scale: _pulseScale.value * 1.15,
+                        child: Container(
+                          width: 130,
+                          height: 130,
+                          decoration: BoxDecoration(
+                            shape: BoxShape.circle,
+                            color: const Color(0xFF2ECC71)
+                                .withValues(alpha: _pulseOpacity.value * 0.4),
+                          ),
+                        ),
+                      ),
+                      // Círculo principal
+                      Container(
+                        width: 130,
+                        height: 130,
+                        decoration: const BoxDecoration(
+                          shape: BoxShape.circle,
+                          color: Color(0xFF2ECC71),
+                        ),
+                        child: const Icon(
+                          Icons.phone,
+                          color: Colors.white,
+                          size: 60,
+                        ),
+                      ),
+                    ],
+                  );
+                },
+              ),
+
+              const SizedBox(height: 40),
+
+              // --- Destinatário ---
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 32),
+                child: Text(
+                  widget.recipientEmail,
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 20,
+                    fontWeight: FontWeight.w600,
+                    letterSpacing: 0.3,
+                  ),
+                ),
+              ),
+
+              const SizedBox(height: 10),
+
+              const Text(
+                'Chamando...',
+                style: TextStyle(
+                  color: Color(0xFF2ECC71),
+                  fontSize: 16,
+                  fontWeight: FontWeight.w400,
+                  letterSpacing: 1.2,
+                ),
+              ),
+
+              const SizedBox(height: 6),
+
+              Text(
+                _elapsedDisplay,
+                style: const TextStyle(
+                  color: Colors.white38,
+                  fontSize: 13,
+                ),
+              ),
+
+              const Spacer(flex: 3),
+
+              // --- Botão de encerrar/cancelar ---
+              GestureDetector(
+                onTap: _cancelCall,
+                child: Container(
+                  width: 72,
+                  height: 72,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: Colors.red.shade600,
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.red.withValues(alpha: 0.4),
+                        blurRadius: 16,
+                        spreadRadius: 2,
+                      ),
+                    ],
+                  ),
+                  child: const Icon(Icons.call_end, color: Colors.white, size: 32),
+                ),
+              ),
+
+              const SizedBox(height: 12),
+
+              const Text(
+                'Cancelar',
+                style: TextStyle(color: Colors.white54, fontSize: 13),
+              ),
+
+              const SizedBox(height: 52),
+            ],
+          ),
         ),
       ),
     );
